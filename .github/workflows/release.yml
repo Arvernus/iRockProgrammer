@@ -41,7 +41,7 @@ jobs:
 
       - name: Install dependencies (jq, cross & cargo-bundle)
         run: |
-          sudo apt-get update && sudo apt-get install -y jq docker.io
+          sudo apt-get update && sudo apt-get install -y jq
           cargo install --locked cross cargo-bundle
 
       - name: Cross‑Bundle App für Linux Desktop
