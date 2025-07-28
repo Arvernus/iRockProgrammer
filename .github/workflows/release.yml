@@ -14,6 +14,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Extract version from Cargo.toml
+        id: cargo_version
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -29,7 +35,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.sha }}
+          tag_name: v${{ steps.cargo_version.outputs.version }}
           name: Release für iRock Mobile Programmer
           body: 'Automatischer Build für iRock Mobile Programmer (armv7)'
         env:
