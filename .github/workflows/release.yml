@@ -14,11 +14,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Extract version from Cargo.toml
         id: cargo_version
         run: |
-          VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$(cargo metadata --format-version=1 --no-deps \
+            | jq -r '.packages[] | select(.name=="iRockProgrammer").version')" \
+            >> $GITHUB_OUTPUT
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -26,11 +39,17 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install cross
-        run: cargo install cross
-
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
+      - name: Install dependencies (jq, cross & cargo-bundle)
+        run: |
+          if ! command -v jq &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+          if ! command -v cross &> /dev/null; then
+            cargo install cross
+          fi
+          if ! command -v cargo-bundle &> /dev/null; then
+            cargo install cargo-bundle
+          fi
 
       - name: Build for iRock Mobile Programmer
         run: cross build --release --target=aarch64-unknown-linux-gnu
@@ -39,11 +58,11 @@ jobs:
         run: cargo bundle --release --target aarch64-unknown-linux-gnu
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.cargo_version.outputs.version }}
           name: Release für iRock Mobile Programmer
-          body: 'Automatischer Build für iRock Mobile Programmer (armv7)'
+          body: "Automatischer Build für iRock Mobile Programmer (aarch64)"
           files: target/aarch64-unknown-linux-gnu/release/bundle/iRockProgrammer.deb
           prerelease: true
         env:
