@@ -2,16 +2,14 @@ name: Build and Release for iRock Mobile Programmer
 
 on:
   pull_request:
-    branches:
-      - main
-    types: [closed]
+    branches: [ main ]
+    types: [ closed ]
 
 jobs:
   build-and-release:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    container:
-      image: rustembedded/cross:aarch64-unknown-linux-gnu
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,9 +30,9 @@ jobs:
         id: cargo_version
         run: |
           echo "version=$(cargo metadata --format-version=1 --no-deps \
-            | jq -r '.packages[] | select(.name=="iRockProgrammer").version')" \
-            >> $GITHUB_OUTPUT
-      
+            | jq -r '.packages[] | select(.name==\"iRockProgrammer\").version')" \
+          >> $GITHUB_OUTPUT
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -43,15 +41,11 @@ jobs:
 
       - name: Install dependencies (jq, cross & cargo-bundle)
         run: |
-          if ! command -v jq &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y jq
-          fi
-          if ! command -v cargo-bundle &> /dev/null; then
-            cargo install cargo-bundle
-          fi
+          sudo apt-get update && sudo apt-get install -y jq docker.io
+          cargo install --locked cross cargo-bundle
 
-      - name: Bundle App für Linux Desktop
-        run: cargo bundle --release --target aarch64-unknown-linux-gnu
+      - name: Cross‑Bundle App für Linux Desktop
+        run: cross bundle --release --target aarch64-unknown-linux-gnu
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
