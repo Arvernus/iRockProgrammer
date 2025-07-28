@@ -7,12 +7,10 @@ on:
 
 jobs:
   build-and-release:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-
+    if: github.event.pull_request.merged == true
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Cache Cargo
         uses: actions/cache@v3
@@ -20,32 +18,27 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
 
-      - name: Extract version from Cargo.toml
+      - name: Extract version
         id: cargo_version
         run: |
           echo "version=$(cargo metadata --format-version=1 --no-deps \
             | jq -r '.packages[] | select(.name==\"iRockProgrammer\").version')" \
           >> $GITHUB_OUTPUT
 
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-
-      - name: Install dependencies (jq, cross & cargo-bundle)
+      - name: Install deps on host
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          cargo install --locked cross cargo-bundle
+          sudo apt-get update && sudo apt-get install -y jq docker.io
+          cargo install --locked cargo-bundle
 
-      - name: Cross‑Bundle App für Linux Desktop
-        run: cross bundle --release --target aarch64-unknown-linux-gnu
+      - name: Cross‑Bundle via Docker
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/src -w /src \
+            rustembedded/cross:aarch64-unknown-linux-gnu \
+            cargo bundle --release --target aarch64-unknown-linux-gnu
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
