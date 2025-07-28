@@ -1,14 +1,7 @@
-use cursive::Cursive;
 use self_update::backends::github::Update;
 use std::env;
 use std::ffi::{CStr, CString};
 use std::os::unix::ffi::OsStrExt;
-
-pub fn check_for_update(siv: &mut Cursive) {
-    // Schreibe Datei-Flag, um Update-Wunsch zu signalisieren
-    let _ = std::fs::write(".irock_update.flag", b"1");
-    siv.quit();
-}
 
 pub fn run_update_and_restart() -> i32 {
     // Terminal: Alternate Screen Buffer verlassen, Farben/Cursor/Bildschirm zurücksetzen

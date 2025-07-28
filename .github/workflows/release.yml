@@ -29,11 +29,11 @@ jobs:
       - name: Install cross
         run: cargo install cross
 
-      - name: Build for iRock Mobile Programmer
-        run: cross build --release --target=aarch64-unknown-linux-gnu
-
       - name: Install cargo-bundle
         run: cargo install cargo-bundle
+
+      - name: Build for iRock Mobile Programmer
+        run: cross build --release --target=aarch64-unknown-linux-gnu
 
       - name: Bundle App für Linux Desktop
         run: cargo bundle --release --target aarch64-unknown-linux-gnu
