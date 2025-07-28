@@ -38,12 +38,6 @@ jobs:
           tag_name: v${{ steps.cargo_version.outputs.version }}
           name: Release für iRock Mobile Programmer
           body: 'Automatischer Build für iRock Mobile Programmer (armv7)'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        with:
           files: target/armv7-unknown-linux-gnueabihf/release/iRockProgrammer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
