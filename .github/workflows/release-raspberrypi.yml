@@ -1,0 +1,44 @@
+name: Build and Release for iRock Mobile Programmer
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [closed]
+
+jobs:
+  build-and-release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: armv7-unknown-linux-gnueabihf
+          override: true
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build for iRock Mobile Programmer (armv7)
+        run: cross build --release --target=armv7-unknown-linux-gnueabihf
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.sha }}
+          name: Release für iRock Mobile Programmer
+          body: 'Automatischer Build für iRock Mobile Programmer (armv7)'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/armv7-unknown-linux-gnueabihf/release/iRockProgrammer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
