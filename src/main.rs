@@ -1,6 +1,7 @@
 use cursive::Cursive;
 use cursive::CursiveExt;
 use cursive::menu::Tree;
+use cursive::view::Nameable;
 use cursive::views::{Dialog, SelectView};
 use serde::Deserialize;
 
@@ -84,134 +85,217 @@ fn main() {
     fn show_hardware_select(siv: &mut Cursive) {
         let mut hardware_select = SelectView::<HardwareType>::new().on_submit(|siv, hardware| {
             siv.pop_layer();
-            let repo = hardware.repo();
-            match fetch_releases(repo) {
-                Ok(releases) => {
-                    if releases.is_empty() {
-                        let hw_select = show_hardware_select as fn(&mut Cursive);
-                        siv.add_layer(
-                            Dialog::text("Keine passende Software für dieses Gerät gefunden.")
-                                .title("Info")
-                                .button("OK", move |s| {
-                                    s.pop_layer();
-                                    hw_select(s);
-                                }),
-                        );
-                    } else {
-                        use std::sync::Arc;
-                        let repo = Arc::new(repo.to_string());
-                        let mut release_select = SelectView::<String>::new().on_submit({
-                            let repo = Arc::clone(&repo);
-                            move |siv, release_tag: &String| {
-                                siv.pop_layer();
-                                // Finde das Release-Objekt zur gewählten Version
-                                let releases = match fetch_releases(&repo) {
-                                    Ok(r) => r,
-                                    Err(_) => {
-                                        siv.add_layer(Dialog::info(
-                                            "Fehler beim erneuten Laden der Releases.",
-                                        ));
-                                        return;
-                                    }
-                                };
-                                let selected_release = releases.into_iter().find(|r| &r.tag_name == release_tag);
-                                if let Some(release) = selected_release {
-                                    // Extrahiere Hardwareversionen aus Asset-Namen mit match
-                                    let mut hw_versions: Vec<String> = Vec::new();
-                                    for asset in &release.stm32_assets {
-                                        match asset.rsplit_once('.') {
-                                            Some((name, "bin")) | Some((name, "hex")) => {
-                                                if let Some((_, hw)) = name.rsplit_once('-') {
-                                                    hw_versions.push(hw.to_string());
+            use cursive::views::{Dialog, LinearLayout, TextView, ProgressBar};
+            use cursive::utils::Counter;
+            let counter = Counter::new(0);
+            siv.add_layer(
+                Dialog::around(
+                    LinearLayout::vertical()
+                        .child(TextView::new("Lade Release-Informationen ..."))
+                        .child(ProgressBar::new().with_value(counter.clone()).max(100).with_name("release_progress"))
+                ).title("Lade Releases")
+            );
+            let cb_sink = siv.cb_sink().clone();
+            let repo = hardware.repo().to_string();
+            std::thread::spawn(move || {
+                // Simulierter Fortschritt, da fetch_releases synchron ist und keine Teilfortschritte liefert
+                let cb_sink_progress = cb_sink.clone();
+                let counter_clone = counter.clone();
+                std::thread::spawn(move || {
+                    for i in 1..=100 {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        let c = counter_clone.clone();
+                        let cb = cb_sink_progress.clone();
+                        let _ = cb.send(Box::new(move |_s: &mut Cursive| {
+                            c.set(i);
+                        }));
+                    }
+                });
+                let result = fetch_releases(&repo);
+                let cb_sink_done = cb_sink.clone();
+                cb_sink_done.send(Box::new(move |s: &mut Cursive| {
+                    s.pop_layer();
+                    match result {
+                        Ok(releases) => {
+                            if releases.is_empty() {
+                                let hw_select = show_hardware_select as fn(&mut Cursive);
+                                s.add_layer(
+                                    Dialog::text("Keine passende Software für dieses Gerät gefunden.")
+                                        .title("Info")
+                                        .button("OK", move |s| {
+                                            s.pop_layer();
+                                            hw_select(s);
+                                        }),
+                                );
+                            } else {
+                                let repo = std::sync::Arc::new(repo.to_string());
+                                let mut release_select = SelectView::<String>::new().on_submit({
+                                    let repo = std::sync::Arc::clone(&repo);
+                                    move |siv, release_tag: &String| {
+                                        siv.pop_layer();
+                                        // Finde das Release-Objekt zur gewählten Version
+                                        let releases = match fetch_releases(&repo) {
+                                            Ok(r) => r,
+                                            Err(_) => {
+                                                siv.add_layer(Dialog::info(
+                                                    "Fehler beim erneuten Laden der Releases.",
+                                                ));
+                                                return;
+                                            }
+                                        };
+                                        let selected_release = releases.into_iter().find(|r| &r.tag_name == release_tag);
+                                        if let Some(release) = selected_release {
+                                            // Extrahiere Hardwareversionen aus Asset-Namen mit match
+                                            let mut hw_versions: Vec<String> = Vec::new();
+                                            for asset in &release.stm32_assets {
+                                                match asset.rsplit_once('.') {
+                                                    Some((name, "bin")) | Some((name, "hex")) => {
+                                                        if let Some((_, hw)) = name.rsplit_once('-') {
+                                                            hw_versions.push(hw.to_string());
+                                                        }
+                                                    }
+                                                    _ => {}
                                                 }
                                             }
-                                            _ => {}
-                                        }
-                                    }
-                                    hw_versions.sort();
-                                    hw_versions.dedup();
-                                    if hw_versions.is_empty() {
-                                        siv.add_layer(Dialog::info(
-                                            "Keine Hardware-Versionen in den Assets gefunden.",
-                                        ));
-                                        return;
-                                    }
-                                    let repo = Arc::clone(&repo);
-                                    let mut hw_select = SelectView::<String>::new().on_submit({
-                                        let repo = Arc::clone(&repo);
-                                        move |siv, hw: &String| {
-                                            siv.pop_layer();
-                                            // Asset-Name für die gewählte Hardware-Version finden
-                                            let asset_name = release.stm32_assets.iter().find(|asset| {
-                                                asset.contains(hw)
-                                            });
-                                            if let Some(asset_name) = asset_name {
-                                                // Download-URL für das Asset holen
-                                                let asset_name = asset_name.clone();
-                                                let repo = Arc::clone(&repo);
-                                                let tag = release.tag_name.clone();
-                                                // Async-Download im Hintergrundthread
-                                                let cb_sink = siv.cb_sink().clone();
-                                                std::thread::spawn(move || {
-                                                    let result = download_github_asset(&repo, &tag, &asset_name);
-                                                    cb_sink.send(Box::new(move |s: &mut Cursive| {
-                                                        match result {
-                                                            Ok(path) => {
-                                                                s.add_layer(Dialog::text(format!(
-                                                                    "Asset wurde heruntergeladen: {}",
-                                                                    path.display()
-                                                                )).button("Beenden", |s| s.quit()));
-                                                            }
-                                                            Err(e) => {
-                                                                s.add_layer(Dialog::info(format!(
-                                                                    "Fehler beim Herunterladen: {}",
-                                                                    e
-                                                                )));
-                                                            }
-                                                        }
-                                                    })).ok();
-                                                });
-                                            } else {
-                                                siv.add_layer(Dialog::info("Kein passendes Asset gefunden."));
+                                            hw_versions.sort();
+                                            hw_versions.dedup();
+                                            if hw_versions.is_empty() {
+                                                siv.add_layer(Dialog::info(
+                                                    "Keine Hardware-Versionen in den Assets gefunden.",
+                                                ));
+                                                return;
                                             }
+                                            let repo = std::sync::Arc::clone(&repo);
+                                            let mut hw_select = SelectView::<String>::new().on_submit({
+                                                let repo = std::sync::Arc::clone(&repo);
+                                                move |siv, hw: &String| {
+                                                    siv.pop_layer();
+                                                    // Asset-Name für die gewählte Hardware-Version finden
+                                                    let asset_name = release.stm32_assets.iter().find(|asset| {
+                                                        asset.contains(hw)
+                                                    });
+                                                    if let Some(asset_name) = asset_name {
+                                                        // Download-URL für das Asset holen
+                                                        let asset_name = asset_name.clone();
+                                                        let repo = std::sync::Arc::clone(&repo);
+                                                        let tag = release.tag_name.clone();
+                                                        use cursive::views::{ProgressBar, LinearLayout, TextView};
+                                                        let cb_sink = siv.cb_sink().clone();
+                                                        use cursive::utils::Counter;
+                                                        let counter = Counter::new(0);
+                                                        siv.add_layer(
+                                                            Dialog::around(
+                                                                LinearLayout::vertical()
+                                                                    .child(TextView::new("Lade Asset herunter ..."))
+                                                                    .child(ProgressBar::new().with_value(counter.clone()).max(100).with_name("download_progress"))
+                                                            ).title("Download")
+                                                        );
+                                                        std::thread::spawn(move || {
+                                                            let counter_clone = counter.clone();
+                                                            let cb_sink_progress = cb_sink.clone();
+                                                            let result = download_github_asset_progress(&repo, &tag, &asset_name, move |current, total| {
+                                                                if total > 0 {
+                                                                    let percent = (current as f32 / total as f32 * 100.0) as usize;
+                                                                    let c = counter_clone.clone();
+                                                                    let cb = cb_sink_progress.clone();
+                                                                    let _ = cb.send(Box::new(move |_s: &mut Cursive| {
+                                                                        c.set(percent);
+                                                                    }));
+                                                                }
+                                                            });
+                                                            let cb_sink_done = cb_sink.clone();
+                                                            cb_sink_done.send(Box::new(move |s: &mut Cursive| {
+                                                                s.pop_layer();
+                                                                match result {
+                                                                    Ok(path) => {
+                                                                let flash_path = path.display().to_string();
+                                                                s.add_layer(
+                                                                    Dialog::text(format!("Asset wurde heruntergeladen: {}\n\nJetzt auf STM32 flashen?", flash_path))
+                                                                        .button("Flashen", move |siv| {
+                                                                            siv.pop_layer();
+                                                                            siv.add_layer(Dialog::text("Flashe Firmware ...").title("Flashen").with_name("flash_status"));
+                                                                            let flash_path = flash_path.clone();
+                                                                            let cb_sink = siv.cb_sink().clone();
+                                                                            std::thread::spawn(move || {
+                                                                                let output = std::process::Command::new("st-flash")
+                                                                                    .arg("write")
+                                                                                    .arg(&flash_path)
+                                                                                    .arg("0x08000000")
+                                                                                    .output();
+                                                                                let msg = match output {
+                                                                                    Ok(out) if out.status.success() => {
+                                                                                        format!("Flash erfolgreich!\n\n{}", String::from_utf8_lossy(&out.stdout))
+                                                                                    },
+                                                                                    Ok(out) => {
+                                                                                        format!("Fehler beim Flashen!\n\n{}", String::from_utf8_lossy(&out.stderr))
+                                                                                    },
+                                                                                    Err(e) => format!("Fehler beim Starten von st-flash: {}", e),
+                                                                                };
+                                                                                cb_sink.send(Box::new(move |s: &mut Cursive| {
+                                                                                    s.call_on_name("flash_status", |v: &mut Dialog| {
+                                                                                        use cursive::views::TextView;
+                                                                                        v.set_content(TextView::new(msg.clone()));
+                                                                                    });
+                                                                                    // Button zum Beenden anbieten
+                                                                                    s.add_layer(Dialog::text("Fertig!").button("Beenden", |s| s.quit()));
+                                                                                })).ok();
+                                                                            });
+                                                                        })
+                                                                        .button("Beenden", |s| s.quit())
+                                                                );
+                                                                    }
+                                                                    Err(e) => {
+                                                                        s.add_layer(Dialog::info(format!(
+                                                                            "Fehler beim Herunterladen: {}",
+                                                                            e
+                                                                        )));
+                                                                    }
+                                                                }
+                                                            })).ok();
+                                                        });
+                                                    } else {
+                                                        siv.add_layer(Dialog::info("Kein passendes Asset gefunden."));
+                                                    }
+                                                }
+                                            });
+                                            for hw in hw_versions {
+                                                hw_select.add_item(hw.clone(), hw);
+                                            }
+                                            siv.add_layer(
+                                                Dialog::around(hw_select)
+                                                    .title("Hardware-Version auswählen"),
+                                            );
+                                        } else {
+                                            siv.add_layer(Dialog::info("Release nicht gefunden."));
                                         }
-                                    });
-                                    for hw in hw_versions {
-                                        hw_select.add_item(hw.clone(), hw);
                                     }
-                                    siv.add_layer(
-                                        Dialog::around(hw_select)
-                                            .title("Hardware-Version auswählen"),
+                                });
+                                for release in releases {
+                                    let display = format!(
+                                        "{}{}",
+                                        release.tag_name,
+                                        if release.prerelease {
+                                            " (pre-release)"
+                                        } else {
+                                            ""
+                                        }
                                     );
-                                } else {
-                                    siv.add_layer(Dialog::info("Release nicht gefunden."));
+                                    release_select.add_item(display, release.tag_name.clone());
                                 }
+                                s.add_layer(
+                                    Dialog::around(release_select).title("Software-Version auswählen"),
+                                );
                             }
-                        });
-                        for release in releases {
-                            let display = format!(
-                                "{}{}",
-                                release.tag_name,
-                                if release.prerelease {
-                                    " (pre-release)"
-                                } else {
-                                    ""
-                                }
-                            );
-                            release_select.add_item(display, release.tag_name.clone());
                         }
-                        siv.add_layer(
-                            Dialog::around(release_select).title("Software-Version auswählen"),
-                        );
+                        Err(e) => {
+                            s.add_layer(Dialog::info(format!(
+                                "Fehler beim Laden der Releases: {}",
+                                e
+                            )));
+                        }
                     }
-                }
-                Err(e) => {
-                    siv.add_layer(Dialog::info(format!(
-                        "Fehler beim Laden der Releases: {}",
-                        e
-                    )));
-                }
-            }
+                })).ok();
+            });
         });
         for hardware in HardwareType::all() {
             hardware_select.add_item(hardware.to_string(), *hardware);
@@ -220,11 +304,16 @@ fn main() {
     }
 
     // Hilfsfunktion: Asset von GitHub herunterladen und temporär speichern
-    fn download_github_asset(
+    // Hilfsfunktion: Asset von GitHub herunterladen und temporär speichern, mit Fortschritt
+    fn download_github_asset_progress<F>(
         repo: &str,
         tag: &str,
         asset_name: &str,
-    ) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+        mut progress_cb: F,
+    ) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
+    where
+        F: FnMut(u64, u64) + Send + 'static,
+    {
         use std::fs::File;
         use std::io::Write;
         use tempfile::tempdir;
@@ -251,12 +340,24 @@ fn main() {
                 .ok_or_else(|| format!("Asset '{}' nicht gefunden", asset_name))?;
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(asset.browser_download_url.clone())
         })?;
-        // Asset herunterladen
-        let response = rt.block_on(async { reqwest::get(asset_url).await?.bytes().await })?;
+        // Asset herunterladen mit Fortschritt
+        let response = rt.block_on(async { reqwest::get(asset_url).await })?;
+        let total = response.content_length().unwrap_or(0);
+        let mut downloaded = 0u64;
         let dir = tempdir()?;
         let file_path = dir.path().join(asset_name);
         let mut file = File::create(&file_path)?;
-        file.write_all(&response)?;
+        let mut stream = response;
+        loop {
+            let chunk = rt.block_on(async { stream.chunk().await })?;
+            if let Some(chunk) = chunk {
+                file.write_all(&chunk)?;
+                downloaded += chunk.len() as u64;
+                progress_cb(downloaded, total);
+            } else {
+                break;
+            }
+        }
         // tempdir lebt nur solange wie das TempDir-Objekt, daher Pfad kopieren
         let final_path = std::env::temp_dir().join(asset_name);
         std::fs::copy(&file_path, &final_path)?;
