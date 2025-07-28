@@ -7,38 +7,32 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
     if: github.event.pull_request.merged == true
-    steps:
-      - uses: actions/checkout@v4
+    runs-on: ubuntu-latest
 
-      - name: Cache Cargo
-        uses: actions/cache@v3
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Extract version
+      - name: Extract version from Cargo.toml
         id: cargo_version
         run: |
-          echo "version=$(cargo metadata --format-version=1 --no-deps \
-            | jq -r '.packages[] | select(.name==\"iRockProgrammer\").version')" \
-          >> $GITHUB_OUTPUT
+          echo "version=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = \"([^\"]+)\"/\1/')" >> $GITHUB_OUTPUT
 
-      - name: Install deps on host
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq docker.io
-          cargo install --locked cargo-bundle
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
 
-      - name: Cross‑Bundle via Docker
-        run: |
-          docker run --rm \
-            -v "${{ github.workspace }}":/src -w /src \
-            rustembedded/cross:aarch64-unknown-linux-gnu \
-            cargo bundle --release --target aarch64-unknown-linux-gnu
+      - name: Bundle App für Linux 
+        run: cargo bundle --release --target aarch64-unknown-linux-gnu
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
