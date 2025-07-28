@@ -10,6 +10,9 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
+      - name: Installiere Cross-Compiler für aarch64
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+        
       - name: Install Rust target aarch64-unknown-linux-gnu
         run: rustup target add aarch64-unknown-linux-gnu
 
