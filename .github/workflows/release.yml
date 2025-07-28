@@ -29,8 +29,14 @@ jobs:
       - name: Install cross
         run: cargo install cross
 
-      - name: Build for iRock Mobile Programmer (armv7)
+      - name: Build for iRock Mobile Programmer
         run: cross build --release --target=aarch64-unknown-linux-gnu
+
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
+
+      - name: Bundle App für Linux Desktop
+        run: cargo bundle --release --target aarch64-unknown-linux-gnu
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -38,6 +44,7 @@ jobs:
           tag_name: v${{ steps.cargo_version.outputs.version }}
           name: Release für iRock Mobile Programmer
           body: 'Automatischer Build für iRock Mobile Programmer (armv7)'
-          files: target/aarch64-unknown-linux-gnu/release/iRockProgrammer
+          files: target/aarch64-unknown-linux-gnu/release/bundle/iRockProgrammer.deb
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
