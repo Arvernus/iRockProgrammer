@@ -98,11 +98,14 @@ fn main() {
                                 }),
                         );
                     } else {
-                        let mut release_select =
-                            SelectView::<String>::new().on_submit(|siv, release_tag: &String| {
+                        use std::sync::Arc;
+                        let repo = Arc::new(repo.to_string());
+                        let mut release_select = SelectView::<String>::new().on_submit({
+                            let repo = Arc::clone(&repo);
+                            move |siv, release_tag: &String| {
                                 siv.pop_layer();
                                 // Finde das Release-Objekt zur gewählten Version
-                                let releases = match fetch_releases(repo) {
+                                let releases = match fetch_releases(&repo) {
                                     Ok(r) => r,
                                     Err(_) => {
                                         siv.add_layer(Dialog::info(
@@ -111,8 +114,7 @@ fn main() {
                                         return;
                                     }
                                 };
-                                let selected_release =
-                                    releases.into_iter().find(|r| &r.tag_name == release_tag);
+                                let selected_release = releases.into_iter().find(|r| &r.tag_name == release_tag);
                                 if let Some(release) = selected_release {
                                     // Extrahiere Hardwareversionen aus Asset-Namen mit match
                                     let mut hw_versions: Vec<String> = Vec::new();
@@ -134,19 +136,46 @@ fn main() {
                                         ));
                                         return;
                                     }
-                                    let mut hw_select = SelectView::<String>::new().on_submit(
-                                        |siv, hw: &String| {
+                                    let repo = Arc::clone(&repo);
+                                    let mut hw_select = SelectView::<String>::new().on_submit({
+                                        let repo = Arc::clone(&repo);
+                                        move |siv, hw: &String| {
                                             siv.pop_layer();
-                                            siv.add_layer(
-                                                Dialog::text(format!(
-                                                    "Sie haben die Hardware-Version '{}' gewählt.",
-                                                    hw
-                                                ))
-                                                .title("Hardware-Version gewählt")
-                                                .button("Beenden", |s| s.quit()),
-                                            );
-                                        },
-                                    );
+                                            // Asset-Name für die gewählte Hardware-Version finden
+                                            let asset_name = release.stm32_assets.iter().find(|asset| {
+                                                asset.contains(hw)
+                                            });
+                                            if let Some(asset_name) = asset_name {
+                                                // Download-URL für das Asset holen
+                                                let asset_name = asset_name.clone();
+                                                let repo = Arc::clone(&repo);
+                                                let tag = release.tag_name.clone();
+                                                // Async-Download im Hintergrundthread
+                                                let cb_sink = siv.cb_sink().clone();
+                                                std::thread::spawn(move || {
+                                                    let result = download_github_asset(&repo, &tag, &asset_name);
+                                                    cb_sink.send(Box::new(move |s: &mut Cursive| {
+                                                        match result {
+                                                            Ok(path) => {
+                                                                s.add_layer(Dialog::text(format!(
+                                                                    "Asset wurde heruntergeladen: {}",
+                                                                    path.display()
+                                                                )).button("Beenden", |s| s.quit()));
+                                                            }
+                                                            Err(e) => {
+                                                                s.add_layer(Dialog::info(format!(
+                                                                    "Fehler beim Herunterladen: {}",
+                                                                    e
+                                                                )));
+                                                            }
+                                                        }
+                                                    })).ok();
+                                                });
+                                            } else {
+                                                siv.add_layer(Dialog::info("Kein passendes Asset gefunden."));
+                                            }
+                                        }
+                                    });
                                     for hw in hw_versions {
                                         hw_select.add_item(hw.clone(), hw);
                                     }
@@ -157,7 +186,8 @@ fn main() {
                                 } else {
                                     siv.add_layer(Dialog::info("Release nicht gefunden."));
                                 }
-                            });
+                            }
+                        });
                         for release in releases {
                             let display = format!(
                                 "{}{}",
@@ -189,6 +219,49 @@ fn main() {
         siv.add_layer(Dialog::around(hardware_select).title("Hardware-Typ auswählen"));
     }
 
+    // Hilfsfunktion: Asset von GitHub herunterladen und temporär speichern
+    fn download_github_asset(
+        repo: &str,
+        tag: &str,
+        asset_name: &str,
+    ) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+        use std::fs::File;
+        use std::io::Write;
+        use tempfile::tempdir;
+        let parts: Vec<&str> = repo.split('/').collect();
+        if parts.len() != 2 {
+            return Err("Ungültiges Repository-Format".into());
+        }
+        let owner = parts[0];
+        let repo_name = parts[1];
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let asset_url = rt.block_on(async {
+            let octocrab = octocrab::Octocrab::default();
+            let release = octocrab
+                .repos(owner, repo_name)
+                .releases()
+                .get_by_tag(tag)
+                .await?;
+            let asset = release
+                .assets
+                .iter()
+                .find(|a| a.name == asset_name)
+                .ok_or_else(|| format!("Asset '{}' nicht gefunden", asset_name))?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(asset.browser_download_url.clone())
+        })?;
+        // Asset herunterladen
+        let response = rt.block_on(async { reqwest::get(asset_url).await?.bytes().await })?;
+        let dir = tempdir()?;
+        let file_path = dir.path().join(asset_name);
+        let mut file = File::create(&file_path)?;
+        file.write_all(&response)?;
+        // tempdir lebt nur solange wie das TempDir-Objekt, daher Pfad kopieren
+        let final_path = std::env::temp_dir().join(asset_name);
+        std::fs::copy(&file_path, &final_path)?;
+        Ok(final_path)
+    }
     // Zeige Restart-Info als Dialog, falls vorhanden, danach Hardware-Auswahl
     if let Ok(msg) = std::fs::read_to_string(".irock_restart_msg") {
         let _ = std::fs::remove_file(".irock_restart_msg");
