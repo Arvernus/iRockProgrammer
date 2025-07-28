@@ -39,5 +39,6 @@ jobs:
           name: Release für iRock Mobile Programmer
           body: 'Automatischer Build für iRock Mobile Programmer (armv7)'
           files: target/aarch64-unknown-linux-gnu/release/iRockProgrammer
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
