@@ -9,9 +9,6 @@ jobs:
   build-and-release:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-
-  add-target:
-    runs-on: ubuntu-latest
     steps:
       - name: Install Rust target aarch64-unknown-linux-gnu
         run: rustup target add aarch64-unknown-linux-gnu
