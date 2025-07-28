@@ -18,3 +18,14 @@ futures-util = "0.3"
 [dependencies.openssl-sys]
 version = "0.9"
 features = ["vendored"]
+
+
+[package.metadata.bundle]
+name = "iRock Programmer"
+description = "Programmiere iRock Mobile Geräte"
+icon = ["logo.png"]
+category = "Development"
+long_description = "Programmiere iRock Mobile Geräte"
+identifier = "com.dilocker.irockprogrammer"
+exec = "iRockProgrammer"
+resources = []
