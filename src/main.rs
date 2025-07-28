@@ -1,21 +1,16 @@
-use cursive::view::View;
-use cursive::views::{Dialog, SelectView, TextView};
 use cursive::Cursive;
 use cursive::CursiveExt;
 use cursive::Printer;
 use cursive::Vec2;
-use octocrab::Octocrab;
-use reqwest::blocking::Client;
+use cursive::menu::Tree;
+use cursive::view::View;
+use cursive::views::{Dialog, SelectView};
 use serde::Deserialize;
 use std::error::Error;
-
-#[macro_use]
-extern crate dotenvy_macro;
 
 #[derive(Debug, Deserialize)]
 struct Release {
     tag_name: String,
-    // Optionaler Name, falls vorhanden
     name: Option<String>,
     prerelease: bool,
     draft: bool,
@@ -37,22 +32,58 @@ impl View for BackgroundView {
         let lines: Vec<&str> = self.ascii_art.lines().collect();
         let art_height = lines.len();
         let art_width = lines.iter().map(|line| line.len()).max().unwrap_or(0);
-
-        // X-/Y-Versatz zum Zentrieren
         let offset_x = (printer.size.x.saturating_sub(art_width)) / 2;
         let offset_y = (printer.size.y.saturating_sub(art_height)) / 2;
-
         for (i, line) in lines.iter().enumerate() {
             printer.print((offset_x, offset_y + i), line);
         }
     }
-
     fn required_size(&mut self, _constraints: Vec2) -> Vec2 {
         let lines: Vec<&str> = self.ascii_art.lines().collect();
         let height = lines.len();
         let width = lines.iter().map(|line| line.len()).max().unwrap_or(0);
         Vec2::new(width, height)
     }
+}
+
+// Menüpunkt-Callback für das Update
+fn check_for_update(siv: &mut cursive::Cursive) {
+    siv.add_layer(Dialog::info("Suche nach Updates..."));
+    std::thread::spawn({
+        let cb_sink = siv.cb_sink().clone();
+        move || {
+            let result = run_update();
+            cb_sink
+                .send(Box::new(move |s: &mut cursive::Cursive| {
+                    match result {
+                        Ok(status) => {
+                            if status {
+                                s.add_layer(Dialog::info("Update erfolgreich durchgeführt! Das Programm muss evtl. neu gestartet werden."));
+                            } else {
+                                s.add_layer(Dialog::info("Kein Update notwendig."));
+                            }
+                        }
+                        Err(e) => {
+                            s.add_layer(Dialog::info(format!("Fehler beim Update: {}", e)));
+                        }
+                    }
+                }))
+                .unwrap();
+        }
+    });
+}
+
+fn run_update() -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    use self_update::backends::github::Update;
+    let status = Update::configure()
+        .repo_owner("Arvernus")
+        .repo_name("iRockProgrammer")
+        .bin_name("iRockProgrammer")
+        .show_download_progress(true)
+        .current_version(env!("CARGO_PKG_VERSION"))
+        .build()?
+        .update()?;
+    Ok(status.updated())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -65,7 +96,6 @@ enum HardwareType {
 }
 
 impl HardwareType {
-    /// Gibt das zugehörige Repository zurück.
     fn repo(&self) -> &'static str {
         match self {
             HardwareType::IRock424 => "Arvernus/iRock-424",
@@ -75,8 +105,6 @@ impl HardwareType {
             }
         }
     }
-
-    /// Gibt alle Hardwaretypen als Slice zurück.
     fn all() -> &'static [HardwareType] {
         &[
             HardwareType::IRock424,
@@ -103,6 +131,25 @@ impl std::fmt::Display for HardwareType {
 
 fn main() {
     let mut siv = Cursive::default();
+
+    // Menüleiste
+    siv.menubar()
+        .add_subtree(
+            "Datei",
+            Tree::new()
+                .leaf("Programm aktualisieren", |s| check_for_update(s))
+                .delimiter()
+                .leaf("Beenden", |s| s.quit()),
+        )
+        .add_subtree(
+            "Info",
+            Tree::new().leaf("Über", |s| {
+                s.add_layer(Dialog::info("iRockProgrammer v1.0\n(c) 2025 Joscha Wagner"))
+            }),
+        );
+    siv.set_autohide_menu(false); // Menüleiste immer anzeigen
+    siv.add_global_callback(cursive::event::Key::Esc, |s| s.select_menubar());
+
     let ascii_logo = r#" ################## 
 ####################
 ####            ####
@@ -117,12 +164,9 @@ fn main() {
         .to_string();
     siv.add_fullscreen_layer(BackgroundView::new(ascii_logo));
 
-    // Hardware-Auswahl: Jetzt verwenden wir SelectView<HardwareType>
     let mut hardware_select = SelectView::<HardwareType>::new().on_submit(|siv, hardware| {
         siv.pop_layer();
-        // Direkt das Repository über die Methode repo() abrufen
         let repo = hardware.repo();
-        // Releases abrufen
         match fetch_releases(repo) {
             Ok(releases) => {
                 let mut release_select =
@@ -134,7 +178,6 @@ fn main() {
                                 .button("OK", |s| s.quit()),
                         );
                     });
-
                 for release in releases {
                     let display = format!(
                         "{}{}",
@@ -158,7 +201,6 @@ fn main() {
         }
     });
 
-    // Iteriere über alle Hardwaretypen
     for hardware in HardwareType::all() {
         hardware_select.add_item(hardware.to_string(), *hardware);
     }
@@ -167,14 +209,16 @@ fn main() {
     siv.run();
 }
 
-fn fetch_releases(repo: &str) -> Result<Vec<Release>, Box<dyn Error>> {
-    // Erstelle eine Tokio-Runtime, um die asynchrone Funktion aufzurufen.
-    let rt = tokio::runtime::Runtime::new()?;
+fn fetch_releases(repo: &str) -> Result<Vec<Release>, Box<dyn std::error::Error + Send + Sync>> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     rt.block_on(async_fetch_releases(repo))
 }
 
-async fn async_fetch_releases(repo: &str) -> Result<Vec<Release>, Box<dyn Error>> {
-    // Teile den Repository-String in "Owner/Repo" auf.
+async fn async_fetch_releases(
+    repo: &str,
+) -> Result<Vec<Release>, Box<dyn std::error::Error + Send + Sync>> {
     let parts: Vec<&str> = repo.split('/').collect();
     if parts.len() != 2 {
         return Err("Ungültiges Repository-Format".into());
@@ -182,10 +226,7 @@ async fn async_fetch_releases(repo: &str) -> Result<Vec<Release>, Box<dyn Error>
     let owner = parts[0];
     let repo_name = parts[1];
 
-    // Octocrab verwendet standardmäßig den GITHUB_TOKEN aus den Umgebungsvariablen.
     let octocrab = octocrab::Octocrab::default();
-
-    // Abrufen der Releases (hier bis zu 100 Releases; anpassbar).
     let response = octocrab
         .repos(owner, repo_name)
         .releases()
@@ -194,7 +235,6 @@ async fn async_fetch_releases(repo: &str) -> Result<Vec<Release>, Box<dyn Error>
         .send()
         .await?;
 
-    // Mappen der Octocrab-Daten auf unser eigenes Release-Struct
     let releases = response
         .items
         .into_iter()
