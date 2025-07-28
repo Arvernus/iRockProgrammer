@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Installiere Cross-Compiler für aarch64
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-        
+
       - name: Install Rust target aarch64-unknown-linux-gnu
         run: rustup target add aarch64-unknown-linux-gnu
 
@@ -45,7 +45,7 @@ jobs:
           tag_name: v${{ steps.cargo_version.outputs.version }}
           name: Release für iRock Mobile Programmer
           body: "Automatischer Build für iRock Mobile Programmer (aarch64)"
-          files: target/aarch64-unknown-linux-gnu/release/bundle/iRockProgrammer.deb
+          files: target/aarch64-unknown-linux-gnu/release/bundle/deb/iRockProgrammer_${{ steps.cargo_version.outputs.version }}_arm64.deb
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
