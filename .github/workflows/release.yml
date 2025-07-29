@@ -36,8 +36,11 @@ jobs:
       - name: Install cargo-bundle
         run: cargo install cargo-bundle
 
-      - name: Bundle App für Linux 
-        run: cargo bundle --release --target aarch64-unknown-linux-gnu --target aarch64-unknown-linux-musl
+      - name: Bundle App für Linux (gnu)
+        run: cargo bundle --release --target aarch64-unknown-linux-gnu
+
+      - name: Bundle App für Linux (musl)
+        run: cargo bundle --release --target aarch64-unknown-linux-musl
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
