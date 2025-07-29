@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Installiere Cross-Compiler für aarch64
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu aarch64-unknown-linux-gnu
 
-      - name: Install Rust target aarch64-unknown-linux-gnu
-        run: rustup target add aarch64-unknown-linux-gnu
+      - name: Install Rust target
+        run: rustup target add aarch64-unknown-linux-gnu aarch64-unknown-linux-musl
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
         run: cargo install cargo-bundle
 
       - name: Bundle App für Linux 
-        run: cargo bundle --release --target aarch64-unknown-linux-gnu
+        run: cargo bundle --release --target aarch64-unknown-linux-gnu --target-dir aarch64-unknown-linux-musl
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -45,7 +45,9 @@ jobs:
           tag_name: v${{ steps.cargo_version.outputs.version }}
           name: Release für iRock Mobile Programmer
           body: "Automatischer Build für iRock Mobile Programmer (aarch64)"
-          files: target/aarch64-unknown-linux-gnu/release/bundle/deb/iRockProgrammer_${{ steps.cargo_version.outputs.version }}_arm64.deb
+          files: |
+            target/aarch64-unknown-linux-gnu/release/bundle/deb/iRockProgrammer_${{ steps.cargo_version.outputs.version }}_arm64.deb
+            target/aarch64-unknown-linux-musl/release/bundle/deb/iRockProgrammer_${{ steps.cargo_version.outputs.version }}_arm64.deb
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
