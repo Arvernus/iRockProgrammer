@@ -72,13 +72,12 @@ jobs:
           mkdir -p release
           for platform in $(find artifacts -mindepth 1 -maxdepth 1 -type d -exec basename {} \;); do
             if [ -d "artifacts/$platform" ]; then
-              for file in artifacts/$platform/*; do
-                base=$(basename "$file")
-                ext="${base##*.}"
-                # Falls keine Extension vorhanden, ext=base
-                if [ "$ext" = "$base" ]; then ext=""; else ext=".$ext"; fi
-                mv "$file" "release/${base}_${platform}${ext}"
-              done
+              find "artifacts/$platform" -type f -exec bash -c '
+                base=$(basename "$1");
+                ext="${base##*.}";
+                if [ "$ext" = "$base" ]; then ext=""; else ext=".$ext"; fi;
+                mv "$1" "release/${base}_${platform}${ext}"
+              ' _ {} \;
               rm -r "artifacts/$platform"
             fi
           done
