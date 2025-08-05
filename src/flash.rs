@@ -208,29 +208,8 @@ pub struct Release {
     pub stm32_assets: Vec<String>,
 }
 
-/// Führt den Flash-Vorgang mit st-flash aus
-pub fn flash_with_st_flash(firmware_path: &str) -> String {
-    let output = std::process::Command::new("st-flash")
-        .arg("write")
-        .arg(firmware_path)
-        .arg("0x08000000")
-        .output();
-    match output {
-        Ok(out) if out.status.success() => {
-            format!(
-                "Flash erfolgreich!\n\n{}",
-                String::from_utf8_lossy(&out.stdout)
-            )
-        }
-        Ok(out) => {
-            format!(
-                "Fehler beim Flashen!\n\n{}",
-                String::from_utf8_lossy(&out.stderr)
-            )
-        }
-        Err(e) => format!("Fehler beim Starten von st-flash: {}", e),
-    }
-}
+// Es gibt nur noch einen Flash-Weg: probe-rs
+// Die Funktion flash_with_probe_rs bleibt erhalten
 
 // Modul für Flash-Logik und Datenabruf
 pub struct FlashConfig {
@@ -246,10 +225,29 @@ pub struct FlashResult {
 
 /// Führt den Flash-Vorgang aus
 pub fn flash_hardware(config: &FlashConfig) -> FlashResult {
-    // TODO: Implementierung des Flash-Vorgangs
+    let msg = flash_with_probe_rs(&config.firmware_path);
+    let success = msg.contains("erfolgreich");
     FlashResult {
-        success: true,
-        message: "Flash erfolgreich (Platzhalter)".to_string(),
+        success,
+        message: msg,
+    }
+}
+
+/// Flash-Vorgang mit probe-rs
+pub fn flash_with_probe_rs(firmware_path: &str) -> String {
+    use probe_rs::flashing::DownloadOptions;
+    use probe_rs::{Session, SessionConfig, config::TargetSelector};
+    use std::fs;
+    match (|| -> anyhow::Result<String> {
+        let firmware = fs::read(firmware_path)?;
+        let mut session = Session::auto_attach(TargetSelector::Auto, SessionConfig::default())?;
+        let mut loader = session.target().flash_loader();
+        loader.add_data(0x0800_0000, &firmware)?;
+        loader.commit(&mut session, DownloadOptions::default())?;
+        Ok("Flashen mit probe-rs erfolgreich!".to_string())
+    })() {
+        Ok(msg) => msg,
+        Err(e) => format!("Fehler beim Flashen mit probe-rs: {}", e),
     }
 }
 

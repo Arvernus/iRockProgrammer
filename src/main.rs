@@ -218,10 +218,13 @@ impl eframe::App for MyApp {
                                     ui.label("Download complete.");
                                     ui.add_space(16.0);
                                     ui.label("3. Flash firmware:");
-                                    if ui.button("Start flashing firmware now").clicked() {
+                                    if ui.button("Firmware jetzt flashen").clicked() {
                                         if let Some(path) = &self.downloaded_path {
-                                            let result = flash::flash_with_st_flash(path);
-                                            self.flash_result_message = Some(result);
+                                            let config = flash::FlashConfig {
+                                                firmware_path: path.clone(),
+                                            };
+                                            let result = flash::flash_hardware(&config);
+                                            self.flash_result_message = Some(result.message);
                                         }
                                     }
                                     if let Some(msg) = &self.flash_result_message {
@@ -251,7 +254,7 @@ impl eframe::App for MyApp {
             }
             View::About => {
                 ui.heading("About this app");
-                ui.label("BMS Installer Maintenance v0.1");
+                ui.label(format!("iRockProgrammer v{}", env!("CARGO_PKG_VERSION")));
             }
             View::Settings => {
                 ui.heading("Settings");
