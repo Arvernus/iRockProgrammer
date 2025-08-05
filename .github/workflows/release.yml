@@ -9,6 +9,7 @@ jobs:
   build:
     if: github.event.pull_request.merged == true
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04-arm
