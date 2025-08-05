@@ -36,13 +36,14 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: cargo-bundle
+
       - name: Extract version from Cargo.toml
         id: cargo_version
         run: |
           echo "version=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = \"([^\"]+)\"/\1/')" >> $GITHUB_OUTPUT
-
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
 
       - name: Bundle App
         run: cargo bundle --release
